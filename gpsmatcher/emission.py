@@ -88,7 +88,6 @@ def emission_matrix(gps, G, dic_geohash, dic_candidates, alpha = 0.1, radius = 1
     geom_df = (nx.to_pandas_edgelist(G)).rename(columns={'edge_id': 'edge'})
     geom_df = gpd.GeoDataFrame(geom_df[['edge', 'geometry']], geometry=geom_df['geometry'], crs=4326)
     geom_df.to_crs(3035, inplace=True)
-    print(dic_candidates)
     cand_edges = pd.DataFrame.from_dict(dic_candidates.items())
     cand_edges.columns=['geohash', 'edge']
     cand_edges['geohash_int'] = cand_edges['geohash'].map(dic_geohash)
@@ -113,7 +112,6 @@ def emission_matrix(gps, G, dic_geohash, dic_candidates, alpha = 0.1, radius = 1
         dist_df.drop(columns=['geometry', 'geometry_edge'], inplace=True)
         dist_df = dist_df[dist_df['dist'] < radius]
         dist_df['dist'] =  ((np.exp(-0.5* ((dist_df['dist'].values / 1000)/alpha)**2)/(np.sqrt(2*np.pi) * alpha))*100).astype(np.int16)
-        print(dist_df)
     nb_rows, nb_cols = int(dist_df['id'].max() + 1), len(G.edges())
     emission_matrix = csr_matrix((dist_df['dist'].values, ( dist_df['id'].values, dist_df['edge'].values)), shape=(nb_rows,nb_cols))
     return(emission_matrix)

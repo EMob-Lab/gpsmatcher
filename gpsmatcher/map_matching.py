@@ -57,7 +57,8 @@ def correct_edge(graph, states, state, sub_edges, id2edges, edges2id, emit_p):
     sucessors = [get_sucessor(graph, edges_no_redundancy[i], next_edges[i]) for i in range(len(edges_no_redundancy) - 1)] + [-1]
     predecessors = [-1] + [get_predecessor(graph, edges_no_redundancy[i], pre_edges[i]) for i in range(1, len(edges_no_redundancy))]  
     cand_edges = [[sucessors[i], edges_no_redundancy[i], predecessors[i]] for i in range(len(sucessors) )] 
-    cand_edgeid = [[edge2state[edges2id[i]] if i!=-1 else -1 for i in sub_list ] for sub_list in cand_edges]
+    # a predecessor or successor that is not a candidate edge of the trace is ignored (-1), as at the path ends
+    cand_edgeid = [[edge2state.get(edges2id[i], -1) if i!=-1 else -1 for i in sub_list ] for sub_list in cand_edges]
     cand_edgeid = np.array(cand_edgeid)
     cand_edgeid = np.repeat(cand_edgeid, edges_no_redundancy_count, axis=0)
     new_edgeid = get_new_edge_id(cand_edgeid, emit_p, edges)
@@ -293,7 +294,8 @@ def big_gps_file_mm(G, gps, radius = 150, alpha = 0.1, beta=1/500, nb_rows_chunk
     all_edges  = []
     all_gps_mm  = []
     for idx, chunk_gps in enumerate(all_chunks_gps):
-        print("{}/{} chunk done".format(idx+1, nb_chunks))
+        if show_print:
+            print("{}/{} chunk done".format(idx+1, nb_chunks))
         if parrallel:
             _, chunk_gps, chunk_gps_mm = mm_gps_parrallel(chunk_gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=alpha, radius=radius, nb_cores=nb_cores)
         else:
