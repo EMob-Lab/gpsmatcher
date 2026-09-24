@@ -11,11 +11,7 @@ Users have the flexibility to employ their custom graph or utilize OpenStreetMap
 You can easily install gpsmatcher using the Python package manager pip:
 
 ```bash
-# Once the package is available on PyPi:
 pip install gpsmatcher
-
-# For now, from Test PyPi:
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple gpsmatcher
 ```
 
 gpsmatcher also depends on recent functionalities of pygeohash, not yet available on PyPi. Please install it directly from GitHub:

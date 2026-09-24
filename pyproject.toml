@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpsmatcher"
-version = "0.1.0"
+version = "0.1.1"
 description = "Match a trace of GPS positions to a transportation graph"
 authors = [
     { name="Loïc Bonnetain", email="loic.bonnetain@univ-eiffel.fr" }
@@ -29,5 +29,5 @@ dependencies = [
 keywords = ["map", "matching", "GPS", "gpsmatcher"]
 
 [project.urls]
-Repository = "https://github.com/lbonnetain/gpsmatcher.git"
-Issues = "https://github.com/lbonnetain/gpsmatcher/issues"
+Repository = "https://github.com/EMob-Lab/gpsmatcher.git"
+Issues = "https://github.com/EMob-Lab/gpsmatcher/issues"
