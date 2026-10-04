@@ -12,6 +12,7 @@ from gpsmatcher.gps import process_gps
 from gpsmatcher.graph import process_graph
 from gpsmatcher.precomputation_emission import process_dic_cand_edges
 from gpsmatcher.transition import transition_matrix
+from gpsmatcher.viterbi import sparse_viterbi
 
 
 def get_predecessor(G, edge, edge_pre):
@@ -194,7 +195,8 @@ def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radi
     """
     gps, gps_mm, dic_geohash, dic_candidates = process_gps(gps, dic_candidates)
     emit = emission_matrix(gps, G_mm, dic_geohash, dic_candidates, alpha = alpha, radius = radius)
-    gps_mm['map_match'] = gps_mm.apply(lambda row: one_traj_mm(row['traj'], G_mm, trans, emit, id2edges, edges2id, row['sub_edges'], row['first_emission'], row['last_emission']), axis=1)
+    edge2state = _edge2state(emit, trans)
+    gps_mm['map_match'] = gps_mm.apply(lambda row: one_traj_mm(row['traj'], G_mm, trans, emit, id2edges, edges2id, row['sub_edges'], row['first_emission'], row['last_emission'], edge2state=edge2state), axis=1)
     gps, gps_mm = format_result(gps, gps_mm)
     return(G_mm, gps, gps_mm)
 
@@ -358,7 +360,11 @@ def gps_file_mm(G, gps, save=True, radius = 150, alpha = 0.1, beta=1/500, folder
         G_mm, gps, gps_mm = mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=alpha, radius=radius)
     return(G_mm, gps, gps_mm)
 
-def one_traj_mm(GPS_traj, graph, transition_matrix, emission_matrix, id2edges, edges2id,sub_edges, start, end):
+def _edge2state(emission_matrix, transition_matrix):
+    """Work array of sparse_viterbi for these matrices: one element per edge (column), all -1."""
+    return np.full(max(emission_matrix.shape[1], transition_matrix.shape[1]), -1, dtype=np.int64)
+
+def one_traj_mm(GPS_traj, graph, transition_matrix, emission_matrix, id2edges, edges2id,sub_edges, start, end, edge2state=None):
     """
     Perform map-matching on a single GPS trajectory.
 
@@ -388,6 +394,9 @@ def one_traj_mm(GPS_traj, graph, transition_matrix, emission_matrix, id2edges, e
     end : int
         End index in emission_matrix).
 
+    edge2state : numpy.ndarray, optional
+        Work array of sparse_viterbi, shared by the trajectories of a call (mm_gps); allocated if not given.
+
     Returns
     -------
     edges : list
@@ -397,12 +406,17 @@ def one_traj_mm(GPS_traj, graph, transition_matrix, emission_matrix, id2edges, e
         List of nodes representing the matched path on the road network graph.
     """
     try:
-        emit_p = (emission_matrix[start:end+1, : ][:, sub_edges].toarray())/100
-        trans_p = (transition_matrix[sub_edges, :][:, sub_edges].toarray())/100
-        start_p = np.ones(len(sub_edges))/len(sub_edges)
-        obs = np.array([i for i in range(len(GPS_traj))])
+        sub = np.asarray(sub_edges, dtype=np.int64)
+        # candidate edges beyond the matrices: version 0.1.1 extracted them with scipy, which raised IndexError
+        if sub.max() >= emission_matrix.shape[1] or sub.max() >= min(transition_matrix.shape):
+            raise IndexError("candidate edge beyond the emission or transition matrix")
+        emission_matrix, transition_matrix = emission_matrix.tocsr(), transition_matrix.tocsr()
+        if edge2state is None or len(edge2state) < max(emission_matrix.shape[1], transition_matrix.shape[1]):
+            edge2state = _edge2state(emission_matrix, transition_matrix)
         states = np.array([i for i in range(len(sub_edges))])
-        (V,prob, state,path) = fast_viterbi(obs, states, start_p, trans_p, emit_p)
+        prob, state, emit_p = sparse_viterbi(len(GPS_traj), int(start), sub, edge2state, emission_matrix.indptr,
+                                             emission_matrix.indices, emission_matrix.data, transition_matrix.indptr,
+                                             transition_matrix.indices, transition_matrix.data)
         if prob != 0:
             edges = [id2edges[sub_edges[int(i)]] for i in state]
             new_edges = correct_edge(graph, states, state, sub_edges,id2edges, edges2id,emit_p)
