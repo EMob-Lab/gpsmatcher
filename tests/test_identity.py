@@ -164,3 +164,48 @@ def test_format_result_identical(seed):
     new = format_result(gps.copy(), gps_mm.copy())
     assert_same_output(old[0], new[0])
     assert_same_output(old[1], new[1])
+
+
+@pytest.mark.parametrize('seed', SEEDS)
+def test_emission_identical(seed):
+    from gpsmatcher import emission
+
+    case = make_case(seed)
+    gps, _, dic_geohash, dic_candidates = reference.process_gps(case.gps.copy(), case.candidates)
+    try:
+        old = reference.emission_matrix(gps, case.G_mm, dic_geohash, dic_candidates, alpha=case.alpha,
+                                        radius=case.radius, show_print=False)
+    except Exception as e:
+        with pytest.raises(type(e)):
+            emission.emission_matrix(gps, case.G_mm, dic_geohash, dic_candidates, alpha=case.alpha,
+                                     radius=case.radius, show_print=False)
+        return
+    kwargs = [{}]
+    if hasattr(emission, 'edge_geometry'):
+        kwargs.append({'edge_geometry': emission.edge_geometry(case.G_mm)})
+    for extra in kwargs:
+        new = emission.emission_matrix(gps, case.G_mm, dic_geohash, dic_candidates, alpha=case.alpha,
+                                       radius=case.radius, show_print=False, **extra)
+        assert new.shape == old.shape and new.dtype == old.dtype
+        assert np.array_equal(new.indptr, old.indptr)
+        assert np.array_equal(new.indices, old.indices)
+        assert np.array_equal(new.data, old.data)
+
+
+@pytest.mark.parametrize('seed', range(60))
+def test_mm_gps_with_edge_geometry_identical(seed):
+    from gpsmatcher.emission import edge_geometry
+
+    case = make_case(seed)
+    without = run(mm_gps, case)
+    try:
+        with_geometry = mm_gps(case.gps.copy(), case.G_mm, case.trans, case.candidates, case.id2edges,
+                               case.edges2id, alpha=case.alpha, radius=case.radius,
+                               edge_geometry=edge_geometry(case.G_mm))
+    except TypeError:
+        raise
+    except Exception as e:
+        assert without is type(e)
+        return
+    for old, new in zip(without[1:], with_geometry[1:]):
+        assert_same_output(old, new)

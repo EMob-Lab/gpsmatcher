@@ -168,7 +168,7 @@ def mm_precomputation(G, beta=1/500, radius=150, save=True, folder_name="mm_inpu
     dic_candidates = process_dic_cand_edges(G_mm, radius = radius, save=save, folder_name=folder_name, show_print=show_print)
     return(G_mm, trans, dic_candidates, id2edges, edges2id)
 
-def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radius=150):
+def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radius=150, edge_geometry=None):
     """
     Given the precomputation, map-match gps data (without multiprocessing)
 
@@ -195,6 +195,9 @@ def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radi
     radius : int, optional
         Radius for candidate edges computation.
 
+    edge_geometry : geopandas.GeoDataFrame, optional
+        Output of gpsmatcher.emission.edge_geometry(G_mm), computed once per graph and reused by the calls.
+
     Returns
     -------
     gps : pandas.DataFrame
@@ -204,7 +207,7 @@ def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radi
         Map-matched GPS data. Each ID_trip with most likely path in the graph.
     """
     gps, gps_mm, dic_geohash, dic_candidates = process_gps(gps, dic_candidates)
-    emit = emission_matrix(gps, G_mm, dic_geohash, dic_candidates, alpha = alpha, radius = radius)
+    emit = emission_matrix(gps, G_mm, dic_geohash, dic_candidates, alpha = alpha, radius = radius, edge_geometry=edge_geometry)
     edge2state = _edge2state(emit, trans)
     paths = {}
     gps_mm['map_match'] = pd.Series([one_traj_mm(traj, G_mm, trans, emit, id2edges, edges2id, sub_edges, first, last, edge2state=edge2state, paths=paths)
