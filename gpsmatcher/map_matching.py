@@ -108,8 +108,8 @@ def format_result(gps, gps_mm):
         Formatted map-matching results.
     """
     gps.reset_index(drop=True, inplace=True)
-    gps_mm['shortest_path_nodes'] = gps_mm.apply(lambda row: row['map_match'][1], axis=1)
-    gps_mm['edges'] = gps_mm.apply(lambda row: row['map_match'][0], axis=1)
+    gps_mm['shortest_path_nodes'] = pd.Series([match[1] for match in gps_mm['map_match']], index=gps_mm.index, dtype=object)
+    gps_mm['edges'] = pd.Series([match[0] for match in gps_mm['map_match']], index=gps_mm.index, dtype=object)
     gps = gps[['lon', 'lat', 'ID_trip']]
     gps['edge'] = gps_mm['edges'].explode().reset_index(drop=True)
     #gps_mm = gps_mm["shortest_path_nodes"].reset_index()
@@ -196,7 +196,9 @@ def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radi
     gps, gps_mm, dic_geohash, dic_candidates = process_gps(gps, dic_candidates)
     emit = emission_matrix(gps, G_mm, dic_geohash, dic_candidates, alpha = alpha, radius = radius)
     edge2state = _edge2state(emit, trans)
-    gps_mm['map_match'] = gps_mm.apply(lambda row: one_traj_mm(row['traj'], G_mm, trans, emit, id2edges, edges2id, row['sub_edges'], row['first_emission'], row['last_emission'], edge2state=edge2state), axis=1)
+    gps_mm['map_match'] = pd.Series([one_traj_mm(traj, G_mm, trans, emit, id2edges, edges2id, sub_edges, first, last, edge2state=edge2state)
+                                     for traj, sub_edges, first, last in zip(gps_mm['traj'], gps_mm['sub_edges'], gps_mm['first_emission'], gps_mm['last_emission'])],
+                                    index=gps_mm.index, dtype=object)
     gps, gps_mm = format_result(gps, gps_mm)
     return(G_mm, gps, gps_mm)
 

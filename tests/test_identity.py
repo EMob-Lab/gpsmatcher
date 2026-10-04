@@ -131,3 +131,36 @@ def test_generator_covers_edge_cases():
     assert counts['empty_emission'] >= 3
     assert counts['long_prob_zero'] >= 1
     assert counts['inf'] >= 1
+
+
+@pytest.mark.parametrize('seed', SEEDS)
+def test_process_gps_identical(seed):
+    from gpsmatcher.gps import process_gps
+
+    case = make_case(seed)
+    old = reference.process_gps(case.gps.copy(), case.candidates)
+    new = process_gps(case.gps.copy(), case.candidates)
+    assert_same_output(old[0], new[0])
+    assert_same_output(old[1], new[1])
+    assert old[2] == new[2] and list(old[2]) == list(new[2])
+    assert old[3] == new[3] and list(old[3]) == list(new[3])
+
+
+@pytest.mark.parametrize('seed', SEEDS)
+def test_format_result_identical(seed):
+    from gpsmatcher.map_matching import format_result
+
+    case = make_case(seed)
+    try:
+        gps, gps_mm, dic_geohash, dic_candidates = reference.process_gps(case.gps.copy(), case.candidates)
+        emit = reference.emission_matrix(gps, case.G_mm, dic_geohash, dic_candidates, alpha=case.alpha,
+                                         radius=case.radius, show_print=False)
+    except Exception:
+        return
+    gps_mm['map_match'] = gps_mm.apply(lambda row: reference.one_traj_mm(
+        row['traj'], case.G_mm, case.trans, emit, case.id2edges, case.edges2id, row['sub_edges'],
+        row['first_emission'], row['last_emission']), axis=1)
+    old = reference.format_result(gps.copy(), gps_mm.copy())
+    new = format_result(gps.copy(), gps_mm.copy())
+    assert_same_output(old[0], new[0])
+    assert_same_output(old[1], new[1])
