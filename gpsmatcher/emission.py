@@ -69,15 +69,26 @@ def edge_geometry(G):
 _edge_geometry = edge_geometry
 
 
-def _chunk_emissions(chunk_gps, cand_pairs, lines, bounds, radius, alpha):
+def _chunk_emissions(chunk_gps, cand_pairs, cand_edge, cand_rows, lines, bounds, radius, alpha):
     """
     chunks_dist_computation on integer columns: the same pairs (point, candidate edge) in the same order, the same
     distances (shapely), the same values. The distance is not computed for a pair whose bounding box distance is
     already beyond the radius (plus 1 micrometre against rounding): such a pair is left out either way.
     """
-    pairs = pd.DataFrame({'id': chunk_gps['id'].to_numpy(), 'point': np.arange(len(chunk_gps))},
-                         index=chunk_gps.index).join(cand_pairs, how='inner')
-    point, row = pairs['point'].to_numpy(), pairs['row'].to_numpy()
+    # the inner join of the points with the candidate pairs on geohash_int, in pandas' order: the points in their
+    # order, and for each point the candidate pairs of its geohash in their order
+    geohash, first, count, order = cand_pairs
+    key = chunk_gps.index.to_numpy()
+    if len(geohash) == 0 or len(key) == 0:
+        return pd.DataFrame({'id': np.array([], dtype=chunk_gps['id'].dtype), 'edge': cand_edge[:0],
+                             'dist': np.array([], dtype=np.int16)})
+    found = np.minimum(np.searchsorted(geohash, key), len(geohash) - 1)
+    n = np.where(geohash[found] == key, count[found], 0)
+    point = np.repeat(np.arange(len(key)), n)
+    offset = np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n)
+    pair = order[np.repeat(first[found], n) + offset]
+    row = cand_rows[pair]
+    pairs = pd.DataFrame({'id': chunk_gps['id'].to_numpy()[point], 'edge': cand_edge[pair]})
     x, y = shapely.get_x(np.asarray(chunk_gps.geometry.values)), shapely.get_y(np.asarray(chunk_gps.geometry.values))
     x, y, box = x[point], y[point], bounds[row]
     dx = np.maximum(np.maximum(box[:, 0] - x, x - box[:, 2]), 0)
@@ -147,10 +158,15 @@ def emission_matrix(gps, G, dic_geohash, dic_candidates, alpha = 0.1, radius = 1
         lines = np.asarray(geom_df.geometry.values)
         cand_pairs = cand_edges.merge(pd.DataFrame({'edge': geom_df['edge'].to_numpy(), 'row': np.arange(len(geom_df))}),
                                       on='edge')
-        cand_pairs.set_index('geohash_int', inplace=True)
+        # candidate pairs grouped by geohash_int (stable: each group in its order), for _chunk_emissions' join
+        keys = cand_pairs['geohash_int'].to_numpy()
+        order = np.argsort(keys, kind='stable')
+        geohash, first, count = np.unique(keys[order], return_index=True, return_counts=True)
+        cand_edge, cand_rows = cand_pairs['edge'].to_numpy(), cand_pairs['row'].to_numpy()
         bounds = shapely.bounds(lines)
         gps_splited = np.array_split(gps, nb_chunks)
-        dist_df = pd.concat([_chunk_emissions(chunk_gps, cand_pairs, lines, bounds, radius, alpha)
+        dist_df = pd.concat([_chunk_emissions(chunk_gps, (geohash, first, count, order), cand_edge, cand_rows, lines,
+                                              bounds, radius, alpha)
                              for chunk_gps in gps_splited])
     else:
         cand_edges = cand_edges.merge(geom_df, on='edge')
