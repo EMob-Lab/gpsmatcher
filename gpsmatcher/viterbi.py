@@ -2,7 +2,14 @@ import numba
 import numpy as np
 
 
-@numba.njit(cache=True)
+def _jit(function):
+    """numba.njit with its cache on disk, or without it where numba finds no cache directory it can write."""
+    try:
+        return numba.njit(cache=True)(function)
+    except RuntimeError:
+        return numba.njit(function)
+
+
 def sparse_viterbi(n_obs, start, sub_edges, edge2state, emit_indptr, emit_indices, emit_data,
                    trans_indptr, trans_indices, trans_data):
     """
@@ -115,3 +122,6 @@ def sparse_viterbi(n_obs, start, sub_edges, edge2state, emit_indptr, emit_indice
     for s in range(n_states):
         edge2state[sub_edges[s]] = -1
     return prob, seq, emit_p
+
+
+sparse_viterbi = _jit(sparse_viterbi)

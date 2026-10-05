@@ -25,6 +25,7 @@ dependencies = [
     "pygeohash_fast",
     "joblib",
     "scipy",
+    "shapely>=2",
 ]
 keywords = ["map", "matching", "GPS", "gpsmatcher"]
 
