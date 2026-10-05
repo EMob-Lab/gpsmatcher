@@ -121,6 +121,32 @@ gps = pd.DataFrame([(1, 4.799618, 45.605151),
 G, gps_mm, gps_mm_sp = gps_file_mm(G, gps, folder_name="mini_graph", save =False, show_print=False)
 ```
 
+## Matching many batches on the same graph
+
+`gps_file_mm` prepares the graph and matches in one call. To match several batches of traces on the same graph,
+prepare it once with `mm_precomputation` and call `mm_gps` for each batch. The geometry of the edges can also be
+computed once and passed to each call:
+
+```python
+from gpsmatcher.emission import edge_geometry
+from gpsmatcher.map_matching import mm_gps, mm_precomputation
+
+G_mm, trans, dic_candidates, id2edges, edges2id = mm_precomputation(G, save=False, show_print=False)
+geometry = edge_geometry(G_mm)
+for gps in batches:
+    _, gps_matched, gps_mm = mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, edge_geometry=geometry)
+```
+
+## Tests
+
+```bash
+pip install -e . pytest
+python -m pytest tests
+```
+
+`tests/test_identity.py` compares the current code with the functions of version 0.1.1 (`tests/reference_0_1_1.py`)
+on generated graphs and traces (`tests/generate.py`): any change must keep the results identical, or say why not.
+
 ## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.

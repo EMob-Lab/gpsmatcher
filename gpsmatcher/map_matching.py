@@ -12,20 +12,31 @@ from gpsmatcher.gps import process_gps
 from gpsmatcher.graph import process_graph
 from gpsmatcher.precomputation_emission import process_dic_cand_edges
 from gpsmatcher.transition import transition_matrix
+from gpsmatcher.viterbi import sparse_viterbi
 
 
-def get_predecessor(G, edge, edge_pre):
+def _shortest_path(G, source, target, paths):
+    """nx.shortest_path, kept in the dict paths (if not None) for the next lookups; a missing path is not kept."""
+    if paths is None:
+        return nx.shortest_path(G, source, target)
+    path = paths.get((source, target))
+    if path is None:
+        path = nx.shortest_path(G, source, target)
+        paths[(source, target)] = path
+    return path
+
+def get_predecessor(G, edge, edge_pre, paths=None):
     if edge[0] == edge_pre[1]:
         return(edge_pre)
     else:
-        path = nx.shortest_path(G, edge_pre[1], edge[0])
+        path = _shortest_path(G, edge_pre[1], edge[0], paths)
         return((path[-2], path[-1]))
 
-def get_sucessor(G, edge, edge_suc):
+def get_sucessor(G, edge, edge_suc, paths=None):
     if edge[1] == edge_suc[0]:
         return(edge_suc)
     else:
-        path = nx.shortest_path(G, edge[1], edge_suc[0])
+        path = _shortest_path(G, edge[1], edge_suc[0], paths)
         return((path[0], path[1]))
 
 def get_new_edge_id(cand_edgeid, emit_p, edges):
@@ -46,7 +57,7 @@ def get_new_edge_id(cand_edgeid, emit_p, edges):
             new_edgeid[i] = edges[i]
     return(new_edgeid)
 
-def correct_edge(graph, states, state, sub_edges, id2edges, edges2id, emit_p):
+def correct_edge(graph, states, state, sub_edges, id2edges, edges2id, emit_p, paths=None):
     edge2state = dict(zip(sub_edges, states))
     edges = [id2edges[sub_edges[int(i)]] for i in state]
     edges_no_redundancy = [i[0] for i in itertools.groupby(edges)]
@@ -54,8 +65,8 @@ def correct_edge(graph, states, state, sub_edges, id2edges, edges2id, emit_p):
 
     pre_edges = [-1]  + edges_no_redundancy[0:-1]
     next_edges = edges_no_redundancy[1:] + [-1] 
-    sucessors = [get_sucessor(graph, edges_no_redundancy[i], next_edges[i]) for i in range(len(edges_no_redundancy) - 1)] + [-1]
-    predecessors = [-1] + [get_predecessor(graph, edges_no_redundancy[i], pre_edges[i]) for i in range(1, len(edges_no_redundancy))]  
+    sucessors = [get_sucessor(graph, edges_no_redundancy[i], next_edges[i], paths) for i in range(len(edges_no_redundancy) - 1)] + [-1]
+    predecessors = [-1] + [get_predecessor(graph, edges_no_redundancy[i], pre_edges[i], paths) for i in range(1, len(edges_no_redundancy))]  
     cand_edges = [[sucessors[i], edges_no_redundancy[i], predecessors[i]] for i in range(len(sucessors) )] 
     # a predecessor or successor that is not a candidate edge of the trace is ignored (-1), as at the path ends
     cand_edgeid = [[edge2state.get(edges2id[i], -1) if i!=-1 else -1 for i in sub_list ] for sub_list in cand_edges]
@@ -107,8 +118,8 @@ def format_result(gps, gps_mm):
         Formatted map-matching results.
     """
     gps.reset_index(drop=True, inplace=True)
-    gps_mm['shortest_path_nodes'] = gps_mm.apply(lambda row: row['map_match'][1], axis=1)
-    gps_mm['edges'] = gps_mm.apply(lambda row: row['map_match'][0], axis=1)
+    gps_mm['shortest_path_nodes'] = pd.Series([match[1] for match in gps_mm['map_match']], index=gps_mm.index, dtype=object)
+    gps_mm['edges'] = pd.Series([match[0] for match in gps_mm['map_match']], index=gps_mm.index, dtype=object)
     gps = gps[['lon', 'lat', 'ID_trip']]
     gps['edge'] = gps_mm['edges'].explode().reset_index(drop=True)
     #gps_mm = gps_mm["shortest_path_nodes"].reset_index()
@@ -157,7 +168,7 @@ def mm_precomputation(G, beta=1/500, radius=150, save=True, folder_name="mm_inpu
     dic_candidates = process_dic_cand_edges(G_mm, radius = radius, save=save, folder_name=folder_name, show_print=show_print)
     return(G_mm, trans, dic_candidates, id2edges, edges2id)
 
-def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radius=150):
+def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radius=150, edge_geometry=None):
     """
     Given the precomputation, map-match gps data (without multiprocessing)
 
@@ -184,6 +195,9 @@ def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radi
     radius : int, optional
         Radius for candidate edges computation.
 
+    edge_geometry : geopandas.GeoDataFrame, optional
+        Output of gpsmatcher.emission.edge_geometry(G_mm), computed once per graph and reused by the calls.
+
     Returns
     -------
     gps : pandas.DataFrame
@@ -193,8 +207,12 @@ def mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=0.1, radi
         Map-matched GPS data. Each ID_trip with most likely path in the graph.
     """
     gps, gps_mm, dic_geohash, dic_candidates = process_gps(gps, dic_candidates)
-    emit = emission_matrix(gps, G_mm, dic_geohash, dic_candidates, alpha = alpha, radius = radius)
-    gps_mm['map_match'] = gps_mm.apply(lambda row: one_traj_mm(row['traj'], G_mm, trans, emit, id2edges, edges2id, row['sub_edges'], row['first_emission'], row['last_emission']), axis=1)
+    emit = emission_matrix(gps, G_mm, dic_geohash, dic_candidates, alpha = alpha, radius = radius, edge_geometry=edge_geometry)
+    edge2state = _edge2state(emit, trans)
+    paths = {}
+    gps_mm['map_match'] = pd.Series([one_traj_mm(traj, G_mm, trans, emit, id2edges, edges2id, sub_edges, first, last, edge2state=edge2state, paths=paths)
+                                     for traj, sub_edges, first, last in zip(gps_mm['traj'], gps_mm['sub_edges'], gps_mm['first_emission'], gps_mm['last_emission'])],
+                                    index=gps_mm.index, dtype=object)
     gps, gps_mm = format_result(gps, gps_mm)
     return(G_mm, gps, gps_mm)
 
@@ -358,7 +376,11 @@ def gps_file_mm(G, gps, save=True, radius = 150, alpha = 0.1, beta=1/500, folder
         G_mm, gps, gps_mm = mm_gps(gps, G_mm, trans, dic_candidates, id2edges, edges2id, alpha=alpha, radius=radius)
     return(G_mm, gps, gps_mm)
 
-def one_traj_mm(GPS_traj, graph, transition_matrix, emission_matrix, id2edges, edges2id,sub_edges, start, end):
+def _edge2state(emission_matrix, transition_matrix):
+    """Work array of sparse_viterbi for these matrices: one element per edge (column), all -1."""
+    return np.full(max(emission_matrix.shape[1], transition_matrix.shape[1]), -1, dtype=np.int64)
+
+def one_traj_mm(GPS_traj, graph, transition_matrix, emission_matrix, id2edges, edges2id,sub_edges, start, end, edge2state=None, paths=None):
     """
     Perform map-matching on a single GPS trajectory.
 
@@ -388,6 +410,12 @@ def one_traj_mm(GPS_traj, graph, transition_matrix, emission_matrix, id2edges, e
     end : int
         End index in emission_matrix).
 
+    edge2state : numpy.ndarray, optional
+        Work array of sparse_viterbi, shared by the trajectories of a call (mm_gps); allocated if not given.
+
+    paths : dict, optional
+        Shortest paths already computed on the graph, shared by the trajectories of a call (mm_gps).
+
     Returns
     -------
     edges : list
@@ -397,19 +425,24 @@ def one_traj_mm(GPS_traj, graph, transition_matrix, emission_matrix, id2edges, e
         List of nodes representing the matched path on the road network graph.
     """
     try:
-        emit_p = (emission_matrix[start:end+1, : ][:, sub_edges].toarray())/100
-        trans_p = (transition_matrix[sub_edges, :][:, sub_edges].toarray())/100
-        start_p = np.ones(len(sub_edges))/len(sub_edges)
-        obs = np.array([i for i in range(len(GPS_traj))])
+        sub = np.asarray(sub_edges, dtype=np.int64)
+        # candidate edges beyond the matrices: version 0.1.1 extracted them with scipy, which raised IndexError
+        if sub.max() >= emission_matrix.shape[1] or sub.max() >= min(transition_matrix.shape):
+            raise IndexError("candidate edge beyond the emission or transition matrix")
+        emission_matrix, transition_matrix = emission_matrix.tocsr(), transition_matrix.tocsr()
+        if edge2state is None or len(edge2state) < max(emission_matrix.shape[1], transition_matrix.shape[1]):
+            edge2state = _edge2state(emission_matrix, transition_matrix)
         states = np.array([i for i in range(len(sub_edges))])
-        (V,prob, state,path) = fast_viterbi(obs, states, start_p, trans_p, emit_p)
+        prob, state, emit_p = sparse_viterbi(len(GPS_traj), int(start), sub, edge2state, emission_matrix.indptr,
+                                             emission_matrix.indices, emission_matrix.data, transition_matrix.indptr,
+                                             transition_matrix.indices, transition_matrix.data)
         if prob != 0:
             edges = [id2edges[sub_edges[int(i)]] for i in state]
-            new_edges = correct_edge(graph, states, state, sub_edges,id2edges, edges2id,emit_p)
+            new_edges = correct_edge(graph, states, state, sub_edges,id2edges, edges2id,emit_p, paths)
             new_edges = [id2edges[sub_edges[int(i)]] for i in new_edges]
             edges_without_redundancy = [i[0] for i in itertools.groupby(new_edges)]
             #edges_without_redundancy = [i[0] for i in itertools.groupby(edges)] #be careful
-            path = [nx.shortest_path(graph, edges_without_redundancy[i][1], edges_without_redundancy[i+1][0]) for i in range(len(edges_without_redundancy) - 1)]
+            path = [_shortest_path(graph, edges_without_redundancy[i][1], edges_without_redundancy[i+1][0], paths) for i in range(len(edges_without_redundancy) - 1)]
             path = [edges_without_redundancy[0][0]] + [item for sublist in path for item in sublist] + [edges_without_redundancy[-1][1]]
             return(new_edges, path)
         else:
