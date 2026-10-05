@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpsmatcher"
-version = "0.1.1"
+version = "0.1.2"
 description = "Match a trace of GPS positions to a transportation graph"
 authors = [
     { name="Loïc Bonnetain", email="loic.bonnetain@univ-eiffel.fr" }
